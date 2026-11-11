@@ -7,6 +7,11 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
+import java.io.ByteArrayOutputStream;
+import android.util.Base64;
 import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -124,6 +129,19 @@ public class MainActivity extends Activity {
                     JSONObject o = new JSONObject();
                     o.put("name", pm.getApplicationLabel(ai).toString());
                     o.put("package", ai.packageName);
+                    try {
+                        Drawable icon = pm.getApplicationIcon(ai);
+                        int w = Math.max(1, icon.getIntrinsicWidth());
+                        int h = Math.max(1, icon.getIntrinsicHeight());
+                        Bitmap bitmap = Bitmap.createBitmap(Math.min(w, 192), Math.min(h, 192), Bitmap.Config.ARGB_8888);
+                        Canvas canvas = new Canvas(bitmap);
+                        icon.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+                        icon.draw(canvas);
+                        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream);
+                        o.put("icon", Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP));
+                        bitmap.recycle();
+                    } catch (Exception ignoredIcon) { o.put("icon", ""); }
                     arr.put(o);
                 } catch (Exception ignored) {}
             }
