@@ -1,90 +1,188 @@
+
 package com.animachristi.os;
 
 import android.app.Activity;
+import android.os.Bundle;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Bundle;
-import android.provider.Settings;
-import android.webkit.JavascriptInterface;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
+import android.webkit.ValueCallback;
+import android.webkit.WebSettings;
+import android.provider.Settings;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
+
     private WebView webView;
-    private static final String HOME_URL = "file:///android_asset/index.html";
+    private ValueCallback<Uri[]> fileCallback;
+    private static final int FILE_REQUEST = 1001;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         webView = new WebView(this);
         setContentView(webView);
 
-        webView.getSettings().setJavaScriptEnabled(true);
-        webView.getSettings().setDomStorageEnabled(true);
-        webView.getSettings().setAllowFileAccess(true);
-        webView.getSettings().setAllowContentAccess(false);
-        webView.getSettings().setAllowFileAccessFromFileURLs(false);
-        webView.getSettings().setAllowUniversalAccessFromFileURLs(false);
-        webView.setWebChromeClient(new WebChromeClient());
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+
+        webView.addJavascriptInterface(new AnimaAndroid(), "AnimaAndroid");
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                if ("file".equals(uri.getScheme()) &&
-                    "android_asset".equals(uri.getHost())) return false;
-                if ("https".equals(uri.getScheme())) {
-                    try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); }
-                    catch (Exception ignored) {}
+            public boolean shouldOverrideUrlLoading(
+                    WebView view,
+                    String url) {
+
+                if (url.startsWith("https://")) {
+                    try {
+                        startActivity(new Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse(url)));
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this,
+                                "Unable to open link",
+                                Toast.LENGTH_SHORT).show();
+                    }
                     return true;
                 }
+
+                return false;
+            }
+        });
+
+        webView.setWebChromeClient(new WebChromeClient() {
+
+            @Override
+            public boolean onShowFileChooser(
+                    WebView view,
+                    ValueCallback<Uri[]> callback,
+                    FileChooserParams params) {
+
+                if (fileCallback != null) {
+                    fileCallback.onReceiveValue(null);
+                }
+
+                fileCallback = callback;
+
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+
+                try {
+                    startActivityForResult(
+                            Intent.createChooser(intent, "Select a file"),
+                            FILE_REQUEST);
+                } catch (Exception e) {
+                    fileCallback = null;
+                    Toast.makeText(MainActivity.this,
+                            "File picker unavailable",
+                            Toast.LENGTH_SHORT).show();
+                    return false;
+                }
+
                 return true;
             }
         });
-        webView.addJavascriptInterface(new AnimaBridge(), "AnimaAndroid");
-        webView.loadUrl(HOME_URL);
+
+        webView.loadUrl("file:///android_asset/index.html");
     }
 
-    public class AnimaBridge {
-        @JavascriptInterface
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data) {
+
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == FILE_REQUEST && fileCallback != null) {
+            Uri[] results = null;
+
+            if (resultCode == RESULT_OK && data != null) {
+                if (data.getClipData() != null) {
+                    int count = data.getClipData().getItemCount();
+                    results = new Uri[count];
+
+                    for (int i = 0; i < count; i++) {
+                        results[i] =
+                                data.getClipData().getItemAt(i).getUri();
+                    }
+                } else if (data.getData() != null) {
+                    results = new Uri[]{data.getData()};
+                }
+            }
+
+            fileCallback.onReceiveValue(results);
+            fileCallback = null;
+        }
+    }
+
+    public class AnimaAndroid {
+
+        @android.webkit.JavascriptInterface
         public String getPlatformInfo() {
-            return "ANIMA_NATIVE_ANDROID";
+            return "ANIMA CHRISTI OS - Android";
         }
 
-        @JavascriptInterface
+        @android.webkit.JavascriptInterface
         public void openSystemSettings() {
             runOnUiThread(() -> {
-                try { startActivity(new Intent(Settings.ACTION_SETTINGS)); }
-                catch (Exception e) { toast("Unable to open Android Settings"); }
+                startActivity(new Intent(Settings.ACTION_SETTINGS));
             });
         }
 
-        @JavascriptInterface
+        @android.webkit.JavascriptInterface
         public void openTermux() {
             runOnUiThread(() -> {
-                try {
-                    Intent launch = getPackageManager().getLaunchIntentForPackage("com.termux");
-                    if (launch == null) { toast("Termux is not installed"); return; }
-                    startActivity(launch);
-                } catch (Exception e) { toast("Could not open Termux"); }
+                Intent intent = getPackageManager()
+                        .getLaunchIntentForPackage("com.termux");
+
+                if (intent != null) {
+                    startActivity(intent);
+                } else {
+                    Toast.makeText(MainActivity.this,
+                            "Termux is not installed",
+                            Toast.LENGTH_SHORT).show();
+                }
             });
         }
 
-        @JavascriptInterface
+        @android.webkit.JavascriptInterface
         public void showMessage(String message) {
-            runOnUiThread(() -> toast(message == null ? "" : message));
+            runOnUiThread(() ->
+                    Toast.makeText(MainActivity.this,
+                            message,
+                            Toast.LENGTH_SHORT).show());
         }
-    }
-
-    private void toast(String message) {
-        Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
     }
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (fileCallback != null) {
+            fileCallback.onReceiveValue(null);
+            fileCallback = null;
+        }
+
+        if (webView != null) {
+            webView.destroy();
+        }
+
+        super.onDestroy();
     }
 }
